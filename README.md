@@ -37,18 +37,22 @@ No npm install is required for this prototype.
 
 ## Deploy on Cloudflare
 
-### Pages
+### Workers Static Assets — recommended
 
-Use build command `npm run build` and output directory `dist`. The generated `_redirects` file sends `/` to `/app/` and makes `/app/*` behave as an SPA.
+The repo is configured for `wrangler deploy` with `assets.not_found_handling = "single-page-application"`. That setting handles direct requests such as `/app/plan` without a catch-all `_redirects` rewrite.
 
-### Workers Static Assets
-
-`wrangler.jsonc` is included. With Wrangler available in your own dev environment:
+Use:
 
 ```bash
 npm run build
 npx wrangler deploy
 ```
+
+The build output directory is `dist`.
+
+### Pages
+
+If you deploy with Cloudflare Pages instead, use build command `npm run build` and output directory `dist`. The app's root `index.html` sends `/` to `/app/`, while client-side routes are designed to use SPA fallback behavior. Do not add `/app/* /app/index.html 200` to `_redirects`; that rule also matches `/app/index.html` and Cloudflare rejects it as a redirect/rewrite loop.
 
 For the production platform, add Worker API routes, D1 and R2 rather than storing athlete history only in localStorage. See `docs/ARCHITECTURE.md` and `db/schema.sql`.
 
