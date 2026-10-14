@@ -1,8 +1,8 @@
 import { BRAND, DEMO_PROFILE, EVENTS, PHASES, SCIENCE, WORKOUTS } from './data.js';
 import {
-  currentEquivalent, eventById, findWeek, formatDate, formatPace, formatTime,
+  auditWeek, currentEquivalent, eventById, findWeek, formatDate, formatPace, formatTime,
   generatePlan, goalAssessment, matchActivityToSession, rescheduleMissed,
-  todayISO, trainingZones
+  suggestedSupplement, todayISO, trainingZones
 } from './engine.js';
 import { parseActivityFile } from './fit.js';
 
@@ -14,6 +14,7 @@ let weekIndex = Math.max(0, plan.weeks.findIndex(w => todayISO() >= w.start && t
 let activity = null;
 let activityMatch = null;
 let query = '';
+let auditResult = null;
 
 function loadState() {
   try {
@@ -29,7 +30,7 @@ function loadState() {
 function save() { localStorage.setItem(KEY, JSON.stringify(state)); }
 function rebuild() { plan = generatePlan(state.profile); weekIndex = Math.min(weekIndex, Math.max(0, plan.weeks.length - 1)); save(); }
 function esc(v='') { return String(v).replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c])); }
-function pathRoute() { const p = location.pathname.replace(/^\/app\/?/, '').split('/')[0]; return ['plan','analyze','library','science','profile'].includes(p) ? p : 'dashboard'; }
+function pathRoute() { const p = location.pathname.replace(/^\/app\/?/, '').split('/')[0]; return ['plan','analyze','library','audit','science','profile'].includes(p) ? p : 'dashboard'; }
 function go(r) { history.pushState({}, '', `/app/${r === 'dashboard' ? '' : r}`); render(); }
 window.addEventListener('popstate', render);
 
@@ -57,7 +58,7 @@ document.addEventListener('input', e => {
 
 function shell(view) {
   const r = pathRoute();
-  const nav = [['dashboard','⌁'],['plan','▦'],['analyze','↥'],['library','▤'],['science','◫'],['profile','◉']];
+  const nav = [['dashboard','⌁'],['plan','▦'],['analyze','↥'],['library','▤'],['audit','✓'],['science','◫'],['profile','◉']];
   return `<div class="shell">
     <aside class="sidebar">
       <div class="brand"><div class="mark"><span>MF</span></div><span class="brand-name">${BRAND.name}</span></div>
@@ -68,10 +69,10 @@ function shell(view) {
     <nav class="mobile-nav">${nav.slice(0,5).map(([k,i]) => `<button class="${r===k?'active':''}" data-nav="${k}"><b>${i}</b>${label(k)}</button>`).join('')}</nav>
   </div>`;
 }
-function label(r) { return ({dashboard:'Dashboard',plan:'Plan',analyze:'Analyze',library:'Library',science:'Science',profile:'Profile'})[r]; }
+function label(r) { return ({dashboard:'Dashboard',plan:'Plan',analyze:'Analyze',library:'Library',audit:'Plan Audit',science:'Science',profile:'Profile'})[r]; }
 function render() { document.title = `${label(pathRoute())} — ${BRAND.name}`; document.getElementById('app').innerHTML = shell(viewFor(pathRoute())); bind(); }
 function renderView() { const el = document.getElementById('view'); if (el) { el.innerHTML = viewFor(pathRoute()); bind(); } }
-function viewFor(r) { return ({plan:planView,analyze:analyzeView,library:libraryView,science:scienceView,profile:profileView}[r] || dashboardView)(); }
+function viewFor(r) { return ({plan:planView,analyze:analyzeView,library:libraryView,audit:auditView,science:scienceView,profile:profileView}[r] || dashboardView)(); }
 
 function hero(kicker,title,text,actions='') { return `<div class="hero"><div><div class="eyebrow">${kicker}</div><h1>${title}</h1><p>${text}</p></div>${actions?`<div class="hero-actions">${actions}</div>`:''}</div>`; }
 function dashboardView() {
@@ -121,6 +122,13 @@ function libraryView() {
     <div class="card"><div class="library-toolbar"><input class="search" data-search placeholder="Search threshold, hills, 800…" value="${esc(query)}"><span class="pill">${WORKOUTS.length} canonical patterns</span></div><div class="workout-list">${list.map(w=>`<div class="workout-item"><div class="workout-top"><div><div class="metric-label">${w.category}</div><h3>${esc(w.name)}</h3></div><span class="evidence">${w.evidence}</span></div><p>${esc(w.prescription)}</p><div class="tag-row">${(w.tags||[]).slice(0,5).map(t=>`<span class="tag">${esc(t)}</span>`).join('')}</div></div>`).join('')}</div></div>
   </div>`;
 }
+function auditView() {
+  return `<div class="content">${hero('External plan audit','Too little, enough, or too much?','Enter the structure of a coach or school week and Mileform checks load progression, hard-day count, long-run share and race proximity.')}
+    <div class="grid grid-2"><div class="card"><form id="audit-form"><div class="form-grid"><div class="field"><label>Planned mileage</label><input name="mileage" type="number" step=".5" value="${state.profile.currentMileage}"></div><div class="field"><label>Hard days / races</label><input name="hardDays" type="number" min="0" max="7" value="2"></div><div class="field"><label>Long run miles</label><input name="longRun" type="number" step=".5" value="8"></div><div class="field"><label>Rest / very-low days</label><input name="restDays" type="number" min="0" max="7" value="1"></div><div class="field" style="grid-column:1/-1"><label>Next important race</label><input name="raceDate" type="date"></div></div><button class="btn primary" style="margin-top:16px" type="submit">Audit week</button></form><div class="notice" style="margin-top:16px"><strong>Not an injury predictor:</strong> this flags programming concerns; it does not calculate medical injury probability.</div></div><div class="card">${auditResult ? auditOutput(auditResult) : '<div class="empty">Run the audit to see deterministic findings.</div>'}</div></div>
+  </div>`;
+}
+function auditOutput(r) { return `<div class="metric-label">Plan fit score</div><div class="audit-score">${r.score}<span style="font-size:18px;color:var(--muted)">/100</span></div>${r.findings.map(f=>`<div class="finding"><span class="finding-dot ${f.level}"></span><div><b>${esc(f.title)}</b><p>${esc(f.text)}</p></div></div>`).join('')}<div class="notice" style="margin-top:14px"><strong>${esc(r.supplement.title)}:</strong> ${esc(r.supplement.text)}</div>`; }
+
 function scienceView() { return `<div class="content">${hero('Evidence registry','The rules need receipts.','Research-backed rules and normal coaching practice are labeled separately.')}<div class="card"><div class="science-list">${SCIENCE.map(s=>`<div class="science-item"><h3><a href="${s.url}" target="_blank" rel="noreferrer">${esc(s.title)} ↗</a></h3><p>${esc(s.takeaway)}</p><div class="science-meta">${s.year} · ${s.evidence}</div></div>`).join('')}</div></div></div>`; }
 
 function profileView() {
@@ -141,6 +149,11 @@ function bind() {
     zone.addEventListener('drop',e=>{e.preventDefault();zone.classList.remove('drag');if(e.dataTransfer.files?.[0])handleFile(e.dataTransfer.files[0])});
   }
   document.getElementById('profile-form')?.addEventListener('submit', saveProfile);
+  document.getElementById('audit-form')?.addEventListener('submit', runAudit);
+}
+function runAudit(e) {
+  e.preventDefault(); const input = Object.fromEntries(new FormData(e.currentTarget).entries());
+  const result = auditWeek(input, state.profile); result.supplement = suggestedSupplement(result, input, state.profile); auditResult = result; renderView();
 }
 async function handleFile(file) {
   try {
